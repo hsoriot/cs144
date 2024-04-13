@@ -30,4 +30,7 @@ public:
 
 protected:
   uint32_t raw_value_ {};
+  uint64_t mask_high32{0xffff'ffff'0000'0000};
+  uint64_t mask_low32{0xffff'ffff};
+  uint64_t Base{mask_low32 + 1};
 };
