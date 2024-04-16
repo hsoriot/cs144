@@ -3,6 +3,7 @@
 #include "byte_stream.hh"
 #include "tcp_receiver_message.hh"
 #include "tcp_sender_message.hh"
+#include "wrapping_integers.hh"
 
 #include <cstdint>
 #include <functional>
@@ -11,12 +12,33 @@
 #include <optional>
 #include <queue>
 
+class retransmissionTimer{
+public:
+  explicit retransmissionTimer(uint64_t initial_RTO_ms_):RTO_ms(initial_RTO_ms_){}
+  [[nodiscard]] constexpr auto is_active() const noexcept -> bool {return is_active_;}
+  [[nodiscard]] constexpr auto is_expired () const noexcept -> bool {return is_active_ and timer_ >= RTO_ms ;}
+  constexpr auto reset() noexcept -> void {timer_ = 0;}
+  constexpr auto e_backoff() noexcept -> void {RTO_ms *= 2;}
+  constexpr auto reload(uint64_t initial_RTO_ms_) noexcept -> void {RTO_ms = initial_RTO_ms_; reset();}
+  constexpr auto start() noexcept -> void {is_active_ = true; reset();}
+  constexpr auto stop() noexcept -> void {is_active_ = false; reset();}
+  constexpr auto tick(uint64_t ms_since_last_tick)noexcept -> retransmissionTimer& {
+    if(is_active_) timer_ += ms_since_last_tick;
+    return *this;
+  }
+
+private:
+  bool is_active_{};
+  uint64_t RTO_ms;
+  uint64_t timer_{};
+};
+
 class TCPSender
 {
 public:
   /* Construct TCP sender with given default Retransmission Timeout and possible ISN */
   TCPSender( ByteStream&& input, Wrap32 isn, uint64_t initial_RTO_ms )
-    : input_( std::move( input ) ), isn_( isn ), initial_RTO_ms_( initial_RTO_ms )
+    : input_( std::move( input ) ), isn_( isn ), initial_RTO_ms_( initial_RTO_ms ), timer_(initial_RTO_ms_)
   {}
 
   /* Generate an empty TCPSenderMessage */
@@ -48,4 +70,16 @@ private:
   ByteStream input_;
   Wrap32 isn_;
   uint64_t initial_RTO_ms_;
+
+  retransmissionTimer timer_;
+  bool SYNsented_{};
+  bool FINsented_{};
+  uint64_t window_sz{1};
+  std::queue<TCPSenderMessage> outstanding_mes_{};
+  uint64_t ret_times_{};
+  //已发送且未确认的总数
+  uint64_t outstadings_{};
+  uint64_t acked_seqno{};
+  uint64_t now_seqno_{};
+  uint64_t exp_ackseqno{};
 };
